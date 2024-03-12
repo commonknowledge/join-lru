@@ -22,29 +22,38 @@ add_filter('ck_join_flow_settings_fields', function ($fields) {
         Field::make('text', 'airtable_base_id'),
         Field::make('text', 'airtable_table_id'),
         Field::make('text', 'airtable_access_token'),
-        Field::make('text', 'airtable_gocardless_subscription_id_column')
+        Field::make('text', 'airtable_gocardless_customer_id_column'),
     ];
     return array_merge($fields, $extra_fields);
 });
 
-add_filter('ck_join_flow_pre_gocardless_subscription_create', function ($data) {
+add_filter('ck_join_flow_find_gocardless_customer', function ($existingCustomer, $data) {
     if (!class_exists('CommonKnowledge\\JoinBlock\\Settings')) {
         error_log('The ck-join-flow-lru plugin requires the ck-join-flow plugin to be installed and activated.');
-        return;
+        return null;
     }
 
     global $joinBlockLog;
+
+    if ($existingCustomer) {
+        return $existingCustomer;
+    }
 
     $baseId = Settings::get('airtable_base_id');
     $tableId = Settings::get('airtable_table_id');
     $accessToken = Settings::get('airtable_access_token');
     if (!$baseId || !$tableId || !$accessToken) {
         $joinBlockLog->error('Missing AirTable Base ID, Table ID and/or Access Token');
-        return;
+        return null;
     }
-    $subscriptionColumn = Settings::get('airtable_gocardless_subscription_id_column') ?: 'GC subscription ID';
 
     $email = $data['email'] ?? '';
+    if (!$email) {
+        return null;
+    }
+
+    $customerColumn = Settings::get('airtable_gocardless_subscription_id_column') ?: 'GC customer ID';
+
     $filterFormula = urlencode('{email} = "' . $email . '"');
 
     $url = "https://api.airtable.com/v0/$baseId/$tableId?filterByFormula=$filterFormula";
@@ -61,17 +70,18 @@ add_filter('ck_join_flow_pre_gocardless_subscription_create', function ($data) {
         if (!$response) {
             $error = curl_error($ch);
             $joinBlockLog->error('AirTable request did not return an ok response: ' . $error);
-            return;
+            return null;
         }
         $data = json_decode($response, true);
         foreach ($data['records'] as $record) {
-            $subscriptionId = $record['fields'][$subscriptionColumn] ?? '';
-            if ($subscriptionId) {
-                GocardlessService::deleteCustomerSubscription($subscriptionId);
+            $customerId = $record['fields'][$customerColumn] ?? '';
+            if ($customerId) {
+                return GocardlessService::getCustomerById($customerId);
             }
         }
     } catch (\Exception $e) {
         $joinBlockLog->error('AirTable request failed: ' . $e->getMessage());
-        return;
     }
-});
+
+    return null;
+}, 10, 2);
