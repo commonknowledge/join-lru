@@ -21,7 +21,8 @@ add_filter('ck_join_flow_settings_fields', function ($fields) {
         Field::make('separator', 'airtable', 'AirTable'),
         Field::make('text', 'airtable_base_id'),
         Field::make('text', 'airtable_table_id'),
-        Field::make('text', 'airtable_access_token')
+        Field::make('text', 'airtable_access_token'),
+        Field::make('text', 'airtable_gocardless_subscription_id_column')
     ];
     return array_merge($fields, $extra_fields);
 });
@@ -41,6 +42,7 @@ add_filter('ck_join_flow_pre_gocardless_subscription_create', function ($data) {
         $joinBlockLog->error('Missing AirTable Base ID, Table ID and/or Access Token');
         return;
     }
+    $subscriptionColumn = Settings::get('airtable_gocardless_subscription_id_column') ?: 'GC subscription ID';
 
     $email = $data['email'] ?? '';
     $filterFormula = urlencode('{email} = "' . $email . '"');
@@ -63,9 +65,9 @@ add_filter('ck_join_flow_pre_gocardless_subscription_create', function ($data) {
         }
         $data = json_decode($response, true);
         foreach ($data['records'] as $record) {
-            $subscription = $record['fields']['GoCardless Subscription ID'] ?? '';
-            if ($subscription) {
-                GocardlessService::deleteCustomerSubscription($subscription);
+            $subscriptionId = $record['fields'][$subscriptionColumn] ?? '';
+            if ($subscriptionId) {
+                GocardlessService::deleteCustomerSubscription($subscriptionId);
             }
         }
     } catch (\Exception $e) {
