@@ -27,17 +27,18 @@ add_filter('ck_join_flow_settings_fields', function ($fields) {
     return array_merge($fields, $extra_fields);
 });
 
-add_filter('ck_join_flow_find_gocardless_customer', function ($existingCustomer, $data) {
+add_action('ck_join_flow_delete_existing_gocardless_customer', function ($data) {
     if (!class_exists('CommonKnowledge\\JoinBlock\\Settings')) {
         error_log('The ck-join-flow-lru plugin requires the ck-join-flow plugin to be installed and activated.');
         return null;
     }
 
-    global $joinBlockLog;
+    deleteExistingGoCardlessCustomer($data);
+}, 10, 2);
 
-    if ($existingCustomer) {
-        return $existingCustomer;
-    }
+function deleteExistingGoCardlessCustomer($data)
+{
+    global $joinBlockLog;
 
     $baseId = Settings::get('airtable_base_id');
     $tableId = Settings::get('airtable_table_id');
@@ -65,6 +66,7 @@ add_filter('ck_join_flow_find_gocardless_customer', function ($existingCustomer,
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         "Authorization: Bearer $accessToken",
     ]);
+    $records = [];
     try {
         $response = curl_exec($ch);
         if (!$response) {
@@ -72,16 +74,25 @@ add_filter('ck_join_flow_find_gocardless_customer', function ($existingCustomer,
             $joinBlockLog->error('AirTable request did not return an ok response: ' . $error);
             return null;
         }
-        $data = json_decode($response, true);
-        foreach ($data['records'] as $record) {
-            $customerId = $record['fields'][$customerColumn] ?? '';
-            if ($customerId) {
-                return GocardlessService::getCustomerById($customerId);
-            }
-        }
+        $gcData = json_decode($response, true);
+        $records = $gcData["records"];
     } catch (\Exception $e) {
         $joinBlockLog->error('AirTable request failed: ' . $e->getMessage());
     }
 
-    return null;
-}, 10, 2);
+    $isUpdate = $data['isUpdateFlow'] ?? false;
+    if (empty($records) && $isUpdate) {
+        $joinBlockLog->error('Update flow was used, but email did not match a user');
+        throw new Exception("Could not find your details, please check your email address", 101);
+    }
+
+    foreach ($records as $record) {
+        $customerId = $record['fields'][$customerColumn] ?? '';
+        if ($customerId) {
+            GocardlessService::removeCustomerMandates($customerId);
+            if ($customerId !== $data['gcCustomerId']) {
+                GocardlessService::removeCustomerById($customerId);
+            }
+        }
+    }
+}
