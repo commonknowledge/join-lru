@@ -46,6 +46,8 @@ add_action('rest_api_init', function () {
         'callback' => function (WP_REST_Request $request) {
             global $joinBlockLog;
 
+            $joinBlockLog->info("Received GoCardless webhook: " . $request->get_body());
+
             $json = json_decode($request->get_body(), true);
             $events = $json['events'];
             foreach ($events as $event) {
