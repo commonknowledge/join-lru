@@ -10,6 +10,7 @@
 
 use Carbon_Fields\Field;
 use CommonKnowledge\JoinBlock\Services\GocardlessService;
+use CommonKnowledge\JoinBlock\Services\JoinService;
 use CommonKnowledge\JoinBlock\Settings;
 
 /**
@@ -49,7 +50,7 @@ add_action('rest_api_init', function () {
             $joinBlockLog->info("Received GoCardless webhook: " . $request->get_body());
 
             $json = json_decode($request->get_body(), true);
-            $events = $json['events'];
+            $events = $json ? $json['events'] : [];
             foreach ($events as $event) {
                 $resourceType = $event['resource_type'];
                 $action = $event['action'];
@@ -63,9 +64,38 @@ add_action('rest_api_init', function () {
                     }
                 }
             }
+
+            ensureSubscriptionsCreated();
         }
     ));
 });
+
+function ensureSubscriptionsCreated() {
+    global $wpdb;
+    global $joinBlockLog;
+
+    $joinBlockLog->info("Running ensureSubscriptionsCreated");
+
+    $sql = "SELECT * FROM {$wpdb->prefix}options WHERE option_name LIKE 'JOIN_FORM_UNPROCESSED_GOCARDLESS_REQUEST_%'";
+    $results = $wpdb->get_results($sql);
+    foreach ($results as $result) {
+        try {
+            $data = json_decode($result->option_value, true);
+
+            $customer = GocardlessService::getCustomerIdByCompletedBillingRequest($data['gcBillingRequestId']);
+            if (!$customer) {
+                $joinBlockLog->error("ensureSubscriptionsCreated: could not process {$result->option_value}: user did not set up mandate.");
+                delete_option($result->option_name);
+                continue;
+            }
+
+            JoinService::handleJoin($data);
+            delete_option($result->option_name);
+        } catch (\Exception $e) {
+            $joinBlockLog->error("ensureSubscriptionsCreated: could not process {$result->option_value}: {$e->getMessage()}");
+        }
+    }
+}
 
 function deleteExistingGoCardlessCustomer($data)
 {
