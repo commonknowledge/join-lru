@@ -29,6 +29,15 @@ add_filter('ck_join_flow_settings_fields', function ($fields) {
     return array_merge($fields, $extra_fields);
 });
 
+add_filter('ck_join_flow_pre_webhook_post', function ($request) {
+    // Prepend email to the session token to fix issue of users reusing
+    // the same tab with different details
+    $body = json_decode($request["body"], true);
+    $body["sessionToken"] = $body["email"] . ':' . $body["sessionToken"];
+    $request["body"] = json_encode($body);
+    return $request;
+});
+
 add_action('ck_join_flow_delete_existing_gocardless_customer', function ($data) {
     if (!class_exists('CommonKnowledge\\JoinBlock\\Settings')) {
         error_log('The ck-join-flow-lru plugin requires the ck-join-flow plugin to be installed and activated.');
@@ -79,13 +88,25 @@ function ensureSubscriptionsCreated() {
     $sql = "SELECT * FROM {$wpdb->prefix}options WHERE option_name LIKE 'JOIN_FORM_UNPROCESSED_GOCARDLESS_REQUEST_%'";
     $results = $wpdb->get_results($sql);
     foreach ($results as $result) {
+        $joinBlockLog->error("ensureSubscriptionsCreated: processing {$result->option_name}: {$result->option_value}");
         try {
             $data = json_decode($result->option_value, true);
 
             $customer = GocardlessService::getCustomerIdByCompletedBillingRequest($data['gcBillingRequestId']);
             if (!$customer) {
-                $joinBlockLog->error("ensureSubscriptionsCreated: could not process {$result->option_value}: user did not set up mandate.");
-                delete_option($result->option_name);
+                $joinBlockLog->error("ensureSubscriptionsCreated: could not process {$result->option_name}: user did not set up mandate.");
+                // Try for one day
+                $day = 24 * 60 * 60;
+                $createdAt = $data['createdAt'] ?? 0;
+
+                $joinBlockLog->error("ensureSubscriptionsCreated: checking if should delete {$result->option_name}, created at {$createdAt}");
+
+                if ((time() - $createdAt) > $day) {
+                    $joinBlockLog->error("ensureSubscriptionsCreated: deleting unprocessable {$result->option_name}");
+                    delete_option($result->option_name);
+                } else {
+                    $joinBlockLog->error("ensureSubscriptionsCreated: will retry {$result->option_name}");
+                }
                 continue;
             }
 
