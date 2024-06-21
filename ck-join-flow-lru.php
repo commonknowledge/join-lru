@@ -34,6 +34,7 @@ add_filter('ck_join_flow_pre_webhook_post', function ($request) {
     // the same tab with different details
     $body = json_decode($request["body"], true);
     $body["sessionToken"] = $body["email"] . ':' . $body["sessionToken"];
+    $body["phoneNumber"] = str_replace("+44", "0", $body["phoneNumber"]);
     $request["body"] = json_encode($body);
     return $request;
 });
@@ -112,6 +113,7 @@ function ensureSubscriptionsCreated() {
 
             JoinService::handleJoin($data);
             delete_option($result->option_name);
+            $joinBlockLog->info("ensureSubscriptionsCreated: success, deleting option {$result->option_name}");
         } catch (\Exception $e) {
             $joinBlockLog->error("ensureSubscriptionsCreated: could not process {$result->option_value}: {$e->getMessage()}");
         }
