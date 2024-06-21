@@ -92,13 +92,17 @@ function ensureSubscriptionsCreated() {
         $joinBlockLog->error("ensureSubscriptionsCreated: processing {$result->option_name}: {$result->option_value}");
         try {
             $data = json_decode($result->option_value, true);
+            $createdAt = $data['createdAt'] ?? 0;
+            if ((time() - $createdAt) < 120) {
+                $joinBlockLog->error("ensureSubscriptionsCreated: not processing {$result->option_name}: waiting at least 2 minutes.");
+                continue;
+            }
 
             $customer = GocardlessService::getCustomerIdByCompletedBillingRequest($data['gcBillingRequestId']);
             if (!$customer) {
                 $joinBlockLog->error("ensureSubscriptionsCreated: could not process {$result->option_name}: user did not set up mandate.");
                 // Try for one day
                 $day = 24 * 60 * 60;
-                $createdAt = $data['createdAt'] ?? 0;
 
                 $joinBlockLog->error("ensureSubscriptionsCreated: checking if should delete {$result->option_name}, created at {$createdAt}");
 
