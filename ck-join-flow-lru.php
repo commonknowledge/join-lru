@@ -180,8 +180,8 @@ function deleteExistingGoCardlessCustomer($email, $customerId, $mandateId)
             $joinBlockLog->info("Not removing existing GoCardless customer for email " . $email . ": previous customer ID not found");
             continue;
         }
-        if ($existingMandateId && $existingCustomerId === $customerId && $existingMandateId === $mandateId) {
-            $joinBlockLog->info("Not removing existing GoCardless customer for email " . $email . ": all details are the same");
+        if (!$customerId) {
+            $joinBlockLog->info("Not removing existing GoCardless mandate for email " . $email . ": new customer not yet created");
             continue;
         }
         if ($existingCustomerId !== $customerId) {
@@ -190,7 +190,15 @@ function deleteExistingGoCardlessCustomer($email, $customerId, $mandateId)
             GocardlessService::removeCustomerById($existingCustomerId);
             continue;
         }
-        if ($existingCustomerId === $customerId && $existingMandateId !== $mandateId) {
+        if (!$existingMandateId) {
+            $joinBlockLog->info("Not removing existing GoCardless mandate for email " . $email . ": previous mandate ID not found");
+            continue;
+        }
+        if (!$mandateId) {
+            $joinBlockLog->info("Not removing existing GoCardless mandate for email " . $email . ": new mandate not yet created");
+            continue;
+        }
+        if ($existingMandateId !== $mandateId) {
             $joinBlockLog->info("Removing existing GoCardless mandates for email " . $email . ": new mandate was created");
             GocardlessService::removeCustomerMandates($existingCustomerId);
             continue;
