@@ -39,14 +39,14 @@ add_filter('ck_join_flow_pre_webhook_post', function ($request) {
     return $request;
 });
 
-add_action('ck_join_flow_delete_existing_gocardless_customer', function ($data) {
+add_action('ck_join_flow_delete_existing_gocardless_customer', function ($email, $customerId, $mandateId) {
     if (!class_exists('CommonKnowledge\\JoinBlock\\Settings')) {
         error_log('The ck-join-flow-lru plugin requires the ck-join-flow plugin to be installed and activated.');
         return null;
     }
 
-    deleteExistingGoCardlessCustomer($data);
-}, 10, 2);
+    deleteExistingGoCardlessCustomer($email, $customerId, $mandateId);
+}, 10, 3);
 
 add_action('rest_api_init', function () {
     register_rest_route('join/v1', '/gocardless/webhook', array(
@@ -124,7 +124,7 @@ function ensureSubscriptionsCreated() {
     }
 }
 
-function deleteExistingGoCardlessCustomer($data)
+function deleteExistingGoCardlessCustomer($email, $customerId, $mandateId)
 {
     global $joinBlockLog;
 
@@ -136,12 +136,10 @@ function deleteExistingGoCardlessCustomer($data)
         return null;
     }
 
-    $email = $data['email'] ?? '';
-    if (!$email) {
-        return null;
-    }
+    $joinBlockLog->info("Looking up existing GoCardless customer for email " . $email);
 
     $customerColumn = Settings::get('airtable_gocardless_customer_id_column') ?: 'GC customer ID';
+    $mandateColumn = Settings::get('airtable_gocardless_customer_id_column') ?: 'GC mandate ID';
 
     $filterFormula = urlencode('{Email address} = "' . $email . '"');
 
@@ -176,13 +174,34 @@ function deleteExistingGoCardlessCustomer($data)
 
     foreach ($records as $record) {
         // Remove previous customer, so a new one can be created
-        $customerId = $record['fields'][$customerColumn] ?? '';
-        if ($customerId) {
-            GocardlessService::removeCustomerMandates($customerId);
-            if ($customerId !== $data['gcCustomerId']) {
-                GocardlessService::removeCustomerById($customerId);
-            }
+        $existingCustomerId = $record['fields'][$customerColumn] ?? '';
+        $existingMandateId = $record['fields'][$mandateColumn] ?? '';
+        if (!$existingCustomerId) {
+            $joinBlockLog->info("Not removing existing GoCardless customer for email " . $email . ": previous customer ID not found");
+            continue;
         }
+        if ($existingMandateId && $existingCustomerId === $customerId && $existingMandateId === $mandateId) {
+            $joinBlockLog->info("Not removing existing GoCardless customer for email " . $email . ": all details are the same");
+            continue;
+        }
+        if ($existingCustomerId !== $customerId) {
+            $joinBlockLog->info("Removing existing GoCardless customer and mandates for email " . $email . ": new customer was created");
+            GocardlessService::removeCustomerMandates($existingCustomerId);
+            GocardlessService::removeCustomerById($existingCustomerId);
+            continue;
+        }
+        if ($existingCustomerId === $customerId && $existingMandateId !== $mandateId) {
+            $joinBlockLog->info("Removing existing GoCardless mandates for email " . $email . ": new mandate was created");
+            GocardlessService::removeCustomerMandates($existingCustomerId);
+            continue;
+        }
+        $details = json_encode([
+            "existingCustomerId" => $existingCustomerId,
+            "existingMandateId" => $existingMandateId,
+            "newCustomerId" => $customerId,
+            "newMandateId" => $mandateId
+        ]);
+        $joinBlockLog->info("Not removing existing GoCardless mandates for email " . $email . ": unclear what to do. Details: $details");
     }
 }
 
