@@ -58,6 +58,9 @@ add_action('rest_api_init', function () {
             global $joinBlockLog;
 
             $joinBlockLog->info("Received GoCardless webhook: " . $request->get_body());
+            $millisToSleep = rand(0, 10000);
+            $joinBlockLog->info("GoCardless webhook: sleeping for $millisToSleep millis");
+            usleep($millisToSleep * 1000);
 
             $json = json_decode($request->get_body(), true);
             $events = $json ? $json['events'] : [];
