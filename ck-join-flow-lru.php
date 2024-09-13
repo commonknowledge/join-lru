@@ -58,9 +58,6 @@ add_action('rest_api_init', function () {
             global $joinBlockLog;
 
             $joinBlockLog->info("Received GoCardless webhook: " . $request->get_body());
-            $millisToSleep = rand(0, 10000);
-            $joinBlockLog->info("GoCardless webhook: sleeping for $millisToSleep millis");
-            usleep($millisToSleep * 1000);
 
             $json = json_decode($request->get_body(), true);
             $events = $json ? $json['events'] : [];
@@ -92,14 +89,10 @@ function ensureSubscriptionsCreated() {
     $sql = "SELECT * FROM {$wpdb->prefix}options WHERE option_name LIKE 'JOIN_FORM_UNPROCESSED_GOCARDLESS_REQUEST_%'";
     $results = $wpdb->get_results($sql);
     foreach ($results as $result) {
-        $joinBlockLog->error("ensureSubscriptionsCreated: processing {$result->option_name}: {$result->option_value}");
+        $joinBlockLog->info("ensureSubscriptionsCreated: processing {$result->option_name}: {$result->option_value}");
         try {
             $data = json_decode($result->option_value, true);
             $createdAt = $data['createdAt'] ?? 0;
-            if ((time() - $createdAt) < 120) {
-                $joinBlockLog->error("ensureSubscriptionsCreated: not processing {$result->option_name}: waiting at least 2 minutes.");
-                continue;
-            }
 
             $customer = GocardlessService::getCustomerIdByCompletedBillingRequest($data['gcBillingRequestId']);
             if (!$customer) {
@@ -107,13 +100,13 @@ function ensureSubscriptionsCreated() {
                 // Try for one day
                 $day = 24 * 60 * 60;
 
-                $joinBlockLog->error("ensureSubscriptionsCreated: checking if should delete {$result->option_name}, created at {$createdAt}");
+                $joinBlockLog->info("ensureSubscriptionsCreated: checking if should delete {$result->option_name}, created at {$createdAt}");
 
                 if ((time() - $createdAt) > $day) {
-                    $joinBlockLog->error("ensureSubscriptionsCreated: deleting unprocessable {$result->option_name}");
+                    $joinBlockLog->info("ensureSubscriptionsCreated: deleting unprocessable {$result->option_name}");
                     delete_option($result->option_name);
                 } else {
-                    $joinBlockLog->error("ensureSubscriptionsCreated: will retry {$result->option_name}");
+                    $joinBlockLog->info("ensureSubscriptionsCreated: will retry {$result->option_name}");
                 }
                 continue;
             }
