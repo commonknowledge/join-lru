@@ -39,13 +39,29 @@ add_filter('ck_join_flow_pre_webhook_post', function ($request) {
     return $request;
 });
 
+add_action('ck_join_flow_update_flow_ensure_customer_exists', function ($email) {
+    if (!class_exists('CommonKnowledge\\JoinBlock\\Settings')) {
+        error_log('The ck-join-flow-lru plugin requires the ck-join-flow plugin to be installed and activated.');
+        return null;
+    }
+
+    global $joinBlockLog;
+
+    $records = findExistingGoCardlessCustomer($email);
+    if (empty($records)) {
+        $joinBlockLog->error('Update flow was used, but email did not match a user');
+        throw new Exception("Could not find your details, please check your email address", 101);
+    }
+}, 10, 3);
+
 add_action('ck_join_flow_delete_existing_gocardless_customer', function ($email, $customerId, $mandateId) {
     if (!class_exists('CommonKnowledge\\JoinBlock\\Settings')) {
         error_log('The ck-join-flow-lru plugin requires the ck-join-flow plugin to be installed and activated.');
         return null;
     }
 
-    deleteExistingGoCardlessCustomer($email, $customerId, $mandateId);
+    $records = findExistingGoCardlessCustomer($email);
+    deleteExistingGoCardlessCustomer($email, $customerId, $mandateId, $records);
 }, 10, 3);
 
 add_action('rest_api_init', function () {
@@ -120,7 +136,7 @@ function ensureSubscriptionsCreated() {
     }
 }
 
-function deleteExistingGoCardlessCustomer($email, $customerId, $mandateId)
+function findExistingGoCardlessCustomer($email)
 {
     global $joinBlockLog;
 
@@ -134,10 +150,7 @@ function deleteExistingGoCardlessCustomer($email, $customerId, $mandateId)
 
     $joinBlockLog->info("Looking up existing GoCardless customer for email " . $email);
 
-    $customerColumn = Settings::get('airtable_gocardless_customer_id_column') ?: 'GC customer ID';
-    $mandateColumn = Settings::get('airtable_gocardless_customer_id_column') ?: 'GC mandate ID';
-
-    $filterFormula = urlencode('{Email address} = "' . $email . '"');
+    $filterFormula = urlencode('LOWER({Email address}) = "' . strtolower($email) . '"');
 
     $url = "https://api.airtable.com/v0/$baseId/$tableId?filterByFormula=$filterFormula";
 
@@ -162,11 +175,14 @@ function deleteExistingGoCardlessCustomer($email, $customerId, $mandateId)
         $joinBlockLog->error('AirTable request failed: ' . $e->getMessage());
     }
 
-    $isUpdate = $data['isUpdateFlow'] ?? false;
-    if (empty($records) && $isUpdate) {
-        $joinBlockLog->error('Update flow was used, but email did not match a user');
-        throw new Exception("Could not find your details, please check your email address", 101);
-    }
+    return $records;
+}
+
+function deleteExistingGoCardlessCustomer($email, $customerId, $mandateId, $records) {
+    global $joinBlockLog;
+
+    $customerColumn = Settings::get('airtable_gocardless_customer_id_column') ?: 'GC customer ID';
+    $mandateColumn = Settings::get('airtable_gocardless_customer_id_column') ?: 'GC mandate ID';
 
     foreach ($records as $record) {
         // Remove previous customer, so a new one can be created
