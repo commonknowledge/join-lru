@@ -94,7 +94,7 @@ add_action('rest_api_init', function () {
             ensureSubscriptionsCreated();
         }
     ));
-});
+}, 9);
 
 function ensureSubscriptionsCreated() {
     global $wpdb;
@@ -212,7 +212,7 @@ function deleteExistingGoCardlessCustomer($email, $customerId, $mandateId, $reco
         }
         if ($existingMandateId !== $mandateId) {
             $joinBlockLog->info("Removing existing GoCardless mandates for email " . $email . ": new mandate was created");
-            GocardlessService::removeCustomerMandates($existingCustomerId);
+            GocardlessService::removeCustomerMandates($existingCustomerId, $mandateId);
             continue;
         }
         $details = json_encode([
